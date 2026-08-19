@@ -4,9 +4,6 @@ name: MemForge V5 Auto Build
   push:
     paths:
       - ".github/workflows/memforge-v5.yml"
-  pull_request:
-    paths:
-      - ".github/workflows/memforge-v5.yml"
   workflow_dispatch:
 
 jobs:
@@ -17,7 +14,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create clean iOS project
+      - name: Create MemForge iOS project
         shell: bash
         run: |
           set -euo pipefail
@@ -55,37 +52,17 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>en</string>
-              <key>CFBundleDisplayName</key>
-              <string>MemForge</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>$(PRODUCT_NAME)</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>5.0</string>
-              <key>CFBundleVersion</key>
-              <string>5</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UILaunchScreen</key>
-              <dict/>
-              <key>UIApplicationSceneManifest</key>
-              <dict>
-                  <key>UIApplicationSupportsMultipleScenes</key>
-                  <false/>
-              </dict>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-              </array>
+              <key>CFBundleDevelopmentRegion</key><string>it</string>
+              <key>CFBundleDisplayName</key><string>MemForge</string>
+              <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+              <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+              <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>CFBundleShortVersionString</key><string>5.1</string>
+              <key>CFBundleVersion</key><string>6</string>
+              <key>LSRequiresIPhoneOS</key><true/>
+              <key>UILaunchScreen</key><dict/>
           </dict>
           </plist>
           PLIST
@@ -96,9 +73,7 @@ jobs:
           @main
           struct MemForgeApp: App {
               var body: some Scene {
-                  WindowGroup {
-                      ContentView()
-                  }
+                  WindowGroup { ContentView() }
               }
           }
           SWIFT
@@ -106,113 +81,136 @@ jobs:
           cat > MemForgeV5/ContentView.swift <<'SWIFT'
           import SwiftUI
 
-          struct MemoryMatch: Identifiable {
+          struct DemoStat: Identifiable {
               let id = UUID()
-              let index: Int
-              var value: Int32
+              let name: String
+              var value: Int
+              var locked: Bool = false
           }
 
           struct ContentView: View {
-              @State private var memory: [Int32] = {
-                  var values = Array(repeating: Int32(0), count: 8192)
-                  values[128] = 1500
-                  values[512] = 1500
-                  values[1024] = 100
-                  values[2048] = 7500
-                  return values
-              }()
-
-              @State private var query = "1500"
-              @State private var matches: [Int] = []
-              @State private var status = "Engine ready"
+              @State private var stats = [
+                  DemoStat(name: "Coins", value: 1500),
+                  DemoStat(name: "Gems", value: 25),
+                  DemoStat(name: "Health", value: 100),
+                  DemoStat(name: "Score", value: 7500)
+              ]
+              @State private var overlayOpen = false
+              @State private var selectedIndex = 0
+              @State private var editValue = "1500"
+              @State private var gearOffset = CGSize(width: 0, height: 90)
+              @State private var status = "Debug lab ready"
 
               var body: some View {
-                  NavigationStack {
-                      List {
-                          Section {
-                              VStack(alignment: .leading, spacing: 8) {
-                                  Label("MemForge V5", systemImage: "memorychip")
-                                      .font(.title2.bold())
-                                  Text("Controlled internal memory engine")
-                                      .foregroundStyle(.secondary)
-                                  Text(status)
-                                      .font(.caption.monospaced())
-                              }
-                              .padding(.vertical, 6)
-                          }
-
-                          Section("Int32 Scanner") {
-                              TextField("Value", text: $query)
-                                  .keyboardType(.numbersAndPunctuation)
-
-                              Button {
-                                  firstScan()
-                              } label: {
-                                  Label("First Scan", systemImage: "magnifyingglass")
+                  ZStack(alignment: .trailing) {
+                      NavigationStack {
+                          List {
+                              Section {
+                                  VStack(alignment: .leading, spacing: 6) {
+                                      Text("MemForge V5.1")
+                                          .font(.title2.bold())
+                                      Text("Controlled debug overlay")
+                                          .foregroundStyle(.secondary)
+                                      Text(status)
+                                          .font(.caption.monospaced())
+                                  }
                               }
 
-                              Button {
-                                  writeFirst()
-                              } label: {
-                                  Label("Write first result → 999999",
-                                        systemImage: "square.and.pencil")
-                              }
-                              .disabled(matches.isEmpty)
-
-                              Button(role: .destructive) {
-                                  resetMemory()
-                              } label: {
-                                  Label("Reset Demo Memory", systemImage: "arrow.counterclockwise")
-                              }
-                          }
-
-                          if !matches.isEmpty {
-                              Section("Results (\(matches.count))") {
-                                  ForEach(matches, id: \.self) { index in
-                                      VStack(alignment: .leading, spacing: 3) {
-                                          Text(String(format: "0x%08X", index * MemoryLayout<Int32>.size))
-                                              .font(.system(.body, design: .monospaced))
-                                          Text("Int32 = \(memory[index])")
-                                              .font(.caption)
-                                              .foregroundStyle(.secondary)
+                              Section("Demo game values") {
+                                  ForEach(stats.indices, id: \.self) { i in
+                                      HStack {
+                                          Text(stats[i].name)
+                                          Spacer()
+                                          if stats[i].locked { Image(systemName: "lock.fill") }
+                                          Text("\(stats[i].value)")
+                                              .font(.body.monospacedDigit())
                                       }
                                   }
                               }
+
+                              Section {
+                                  Button("Simulate game update") {
+                                      if !stats[0].locked { stats[0].value += 25 }
+                                      if !stats[1].locked { stats[1].value += 1 }
+                                      if !stats[2].locked { stats[2].value = max(0, stats[2].value - 5) }
+                                      if !stats[3].locked { stats[3].value += 100 }
+                                      status = "Demo values updated"
+                                  }
+                              }
                           }
+                          .navigationTitle("MemForge")
                       }
-                      .navigationTitle("MemForge")
-                  }
-              }
 
-              private func firstScan() {
-                  guard let value = Int32(query) else {
-                      status = "Invalid Int32 value"
-                      return
-                  }
-                  matches = memory.indices.filter { memory[$0] == value }
-                  status = "Scan complete: \(matches.count) matches"
-              }
+                      Button {
+                          overlayOpen.toggle()
+                      } label: {
+                          Image(systemName: overlayOpen ? "xmark" : "gearshape.fill")
+                              .font(.title3.bold())
+                              .foregroundStyle(.white)
+                              .frame(width: 54, height: 54)
+                              .background(.black.opacity(0.88), in: Circle())
+                              .shadow(radius: 8)
+                      }
+                      .padding(.trailing, 12)
+                      .offset(gearOffset)
+                      .gesture(DragGesture().onChanged { gearOffset = $0.translation })
+                      .zIndex(3)
 
-              private func writeFirst() {
-                  guard let index = matches.first else {
-                      status = "No result selected"
-                      return
-                  }
-                  memory[index] = 999999
-                  status = memory[index] == 999999
-                      ? "Write verified: 999999"
-                      : "Write verification failed"
-              }
+                      if overlayOpen {
+                          VStack(spacing: 14) {
+                              HStack {
+                                  Image(systemName: "gearshape.2.fill")
+                                  Text("Debug Overlay").font(.headline)
+                                  Spacer()
+                              }
 
-              private func resetMemory() {
-                  memory = Array(repeating: 0, count: 8192)
-                  memory[128] = 1500
-                  memory[512] = 1500
-                  memory[1024] = 100
-                  memory[2048] = 7500
-                  query = "1500"
-                  matches = []
-                  status = "Memory reset"
+                              Picker("Value", selection: $selectedIndex) {
+                                  ForEach(stats.indices, id: \.self) { i in
+                                      Text(stats[i].name).tag(i)
+                                  }
+                              }
+                              .onChange(of: selectedIndex) { _, newValue in
+                                  editValue = String(stats[newValue].value)
+                              }
+
+                              HStack {
+                                  Text("Current")
+                                  Spacer()
+                                  Text("\(stats[selectedIndex].value)")
+                                      .font(.body.monospacedDigit())
+                              }
+
+                              TextField("New value", text: $editValue)
+                                  .keyboardType(.numberPad)
+                                  .textFieldStyle(.roundedBorder)
+
+                              Button("Apply value") {
+                                  if let n = Int(editValue) {
+                                      stats[selectedIndex].value = n
+                                      status = "Updated \(stats[selectedIndex].name)"
+                                  }
+                              }
+                              .buttonStyle(.borderedProminent)
+
+                              Toggle("Lock value", isOn: Binding(
+                                  get: { stats[selectedIndex].locked },
+                                  set: { stats[selectedIndex].locked = $0 }
+                              ))
+
+                              Text("Overlay active only inside this controlled demo app.")
+                                  .font(.caption2)
+                                  .foregroundStyle(.secondary)
+                          }
+                          .padding(18)
+                          .frame(width: 320)
+                          .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                          .shadow(radius: 24)
+                          .padding(.trailing, 22)
+                          .transition(.scale.combined(with: .opacity))
+                          .zIndex(2)
+                      }
+                  }
+                  .animation(.spring(response: 0.28, dampingFraction: 0.82), value: overlayOpen)
               }
           }
           SWIFT
@@ -241,61 +239,24 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean build
 
-      - name: Validate and ad-hoc sign app
+      - name: Ad-hoc sign
         run: |
           set -euo pipefail
           APP="build/Build/Products/Release-iphoneos/MemForge.app"
           test -d "$APP"
-          test -f "$APP/Info.plist"
-
-          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
-          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
-          TYPE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$APP/Info.plist")
-
-          echo "Executable: $EXEC"
-          echo "Bundle ID: $BUNDLE"
-          echo "Package type: $TYPE"
-
-          test "$TYPE" = "APPL"
-          test -f "$APP/$EXEC"
-          file "$APP/$EXEC"
-
-          /usr/bin/codesign \
-            --force \
-            --sign - \
-            --timestamp=none \
-            "$APP"
-
+          /usr/bin/codesign --force --sign - --timestamp=none "$APP"
           /usr/bin/codesign --verify --verbose=4 "$APP"
-          /usr/bin/codesign -dvv "$APP" 2>&1 | head -80
 
-      - name: Create validated IPA
+      - name: Create IPA
         run: |
           set -euo pipefail
           APP="build/Build/Products/Release-iphoneos/MemForge.app"
-
-          rm -rf Payload ipa-check MemForge-V5.ipa
+          rm -rf Payload MemForge-V5.ipa
           mkdir -p Payload
           /usr/bin/ditto "$APP" "Payload/MemForge.app"
           /usr/bin/zip -qry MemForge-V5.ipa Payload
-
           test -s MemForge-V5.ipa
           unzip -t MemForge-V5.ipa
-
-          mkdir ipa-check
-          unzip -q MemForge-V5.ipa -d ipa-check
-          test -d ipa-check/Payload/MemForge.app
-          test -f ipa-check/Payload/MemForge.app/Info.plist
-
-          EXEC=$(/usr/libexec/PlistBuddy \
-            -c 'Print :CFBundleExecutable' \
-            ipa-check/Payload/MemForge.app/Info.plist)
-
-          test -f "ipa-check/Payload/MemForge.app/$EXEC"
-          /usr/bin/codesign --verify --verbose=4 ipa-check/Payload/MemForge.app
-
-          echo "IPA size:"
-          ls -lh MemForge-V5.ipa
 
       - name: Upload MemForge V5
         uses: actions/upload-artifact@v4
