@@ -22,7 +22,8 @@ struct GameView: View {
                 Spacer(minLength: 20)
 
                 Text("GAMEHOST")
-                    .font(.largeTitle.black())
+                    .font(.largeTitle)
+                    .fontWeight(.black)
                     .foregroundStyle(.white)
 
                 Text("Authorized MemForgeKit test build")
@@ -32,13 +33,16 @@ struct GameView: View {
                     ForEach(store.values) { item in
                         VStack(spacing: 6) {
                             Text(item.name.uppercased())
-                                .font(.caption.bold())
+                                .font(.caption)
+                                .fontWeight(.bold)
                                 .foregroundStyle(.secondary)
                             Text("\(item.value)")
-                                .font(.title2.monospacedDigit().bold())
+                                .font(.system(.title2, design: .monospaced))
+                                .fontWeight(.bold)
                             if item.frozen {
                                 Label("FROZEN", systemImage: "lock.fill")
-                                    .font(.caption2.bold())
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
                             }
                         }
                         .frame(maxWidth: .infinity, minHeight: 105)
@@ -56,7 +60,7 @@ struct GameView: View {
                 .buttonStyle(.borderedProminent)
 
                 Text(store.status)
-                    .font(.footnote.monospaced())
+                    .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.75))
 
                 Text("Apri l'ingranaggio flottante per modificare e bloccare in tempo reale i valori registrati da questa build di test.")
