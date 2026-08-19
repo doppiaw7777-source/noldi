@@ -1,4 +1,4 @@
-name: MemForge V5 Auto Build
+name: MemForgeKit GameHost Build
 
 "on":
   push:
@@ -14,15 +14,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create MemForge iOS project
+      - name: Create controlled GameHost project
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf MemForgeV5 MemForgeV5.xcodeproj build Payload MemForge-V5.ipa
-          mkdir -p MemForgeV5
+          rm -rf MemForgeKit GameHost GameHost.xcodeproj build Payload GameHost-MemForge.ipa
+          mkdir -p MemForgeKit GameHost
 
           cat > project.yml <<'YAML'
-          name: MemForgeV5
+          name: GameHost
           options:
             deploymentTarget:
               iOS: "17.0"
@@ -31,186 +31,303 @@ jobs:
               SWIFT_VERSION: "5.0"
               IPHONEOS_DEPLOYMENT_TARGET: "17.0"
           targets:
-            MemForge:
+            MemForgeKit:
+              type: framework
+              platform: iOS
+              sources:
+                - path: MemForgeKit
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.memforge.kit
+                  PRODUCT_NAME: MemForgeKit
+                  GENERATE_INFOPLIST_FILE: YES
+                  BUILD_LIBRARY_FOR_DISTRIBUTION: NO
+            GameHost:
               type: application
               platform: iOS
               sources:
-                - path: MemForgeV5
+                - path: GameHost
+              dependencies:
+                - target: MemForgeKit
               settings:
                 base:
-                  PRODUCT_BUNDLE_IDENTIFIER: com.memforge.v5
-                  PRODUCT_NAME: MemForge
-                  INFOPLIST_FILE: MemForgeV5/Info.plist
+                  PRODUCT_BUNDLE_IDENTIFIER: com.memforge.gamehost
+                  PRODUCT_NAME: GameHost
+                  INFOPLIST_FILE: GameHost/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
                   SUPPORTS_MACCATALYST: "NO"
                   GENERATE_INFOPLIST_FILE: "NO"
                   ASSETCATALOG_COMPILER_APPICON_NAME: ""
           YAML
 
-          cat > MemForgeV5/Info.plist <<'PLIST'
+          cat > GameHost/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>CFBundleDevelopmentRegion</key><string>it</string>
-              <key>CFBundleDisplayName</key><string>MemForge</string>
+              <key>CFBundleDisplayName</key><string>GameHost</string>
               <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
               <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
               <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
               <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
               <key>CFBundlePackageType</key><string>APPL</string>
-              <key>CFBundleShortVersionString</key><string>5.1</string>
-              <key>CFBundleVersion</key><string>6</string>
+              <key>CFBundleShortVersionString</key><string>1.0</string>
+              <key>CFBundleVersion</key><string>1</string>
               <key>LSRequiresIPhoneOS</key><true/>
               <key>UILaunchScreen</key><dict/>
           </dict>
           </plist>
           PLIST
 
-          cat > MemForgeV5/MemForgeApp.swift <<'SWIFT'
-          import SwiftUI
+          cat > MemForgeKit/MemForgeValue.swift <<'SWIFT'
+          import Foundation
 
-          @main
-          struct MemForgeApp: App {
-              var body: some Scene {
-                  WindowGroup { ContentView() }
+          public struct MemForgeValue: Identifiable, Equatable {
+              public let id: UUID
+              public var name: String
+              public var value: Int
+              public var frozen: Bool
+
+              public init(name: String, value: Int, frozen: Bool = false) {
+                  self.id = UUID()
+                  self.name = name
+                  self.value = value
+                  self.frozen = frozen
               }
           }
           SWIFT
 
-          cat > MemForgeV5/ContentView.swift <<'SWIFT'
+          cat > MemForgeKit/MemForgeStore.swift <<'SWIFT'
+          import Foundation
+          import Combine
+
+          public final class MemForgeStore: ObservableObject {
+              @Published public var values: [MemForgeValue]
+              @Published public var status: String = "MemForgeKit ready"
+
+              public init(values: [MemForgeValue]) {
+                  self.values = values
+              }
+
+              public func setValue(at index: Int, to newValue: Int) {
+                  guard values.indices.contains(index) else { return }
+                  values[index].value = newValue
+                  status = "Updated \(values[index].name)"
+              }
+
+              public func setFrozen(at index: Int, frozen: Bool) {
+                  guard values.indices.contains(index) else { return }
+                  values[index].frozen = frozen
+                  status = frozen ? "Frozen \(values[index].name)" : "Unfrozen \(values[index].name)"
+              }
+
+              public func mutateForDemo() {
+                  for index in values.indices where !values[index].frozen {
+                      switch values[index].name {
+                      case "Coins": values[index].value += 25
+                      case "Gems": values[index].value += 1
+                      case "Health": values[index].value = max(0, values[index].value - 5)
+                      case "Score": values[index].value += 100
+                      default: break
+                      }
+                  }
+                  status = "Game tick applied"
+              }
+          }
+          SWIFT
+
+          cat > MemForgeKit/MemForgeOverlay.swift <<'SWIFT'
           import SwiftUI
 
-          struct DemoStat: Identifiable {
-              let id = UUID()
-              let name: String
-              var value: Int
-              var locked: Bool = false
-          }
-
-          struct ContentView: View {
-              @State private var stats = [
-                  DemoStat(name: "Coins", value: 1500),
-                  DemoStat(name: "Gems", value: 25),
-                  DemoStat(name: "Health", value: 100),
-                  DemoStat(name: "Score", value: 7500)
-              ]
-              @State private var overlayOpen = false
+          public struct MemForgeOverlay: View {
+              @ObservedObject private var store: MemForgeStore
+              @State private var isOpen = false
               @State private var selectedIndex = 0
-              @State private var editValue = "1500"
-              @State private var gearOffset = CGSize(width: 0, height: 90)
-              @State private var status = "Debug lab ready"
+              @State private var editValue = ""
+              @State private var position = CGSize(width: 0, height: 100)
 
-              var body: some View {
+              public init(store: MemForgeStore) {
+                  self.store = store
+              }
+
+              public var body: some View {
                   ZStack(alignment: .trailing) {
-                      NavigationStack {
-                          List {
-                              Section {
-                                  VStack(alignment: .leading, spacing: 6) {
-                                      Text("MemForge V5.1")
-                                          .font(.title2.bold())
-                                      Text("Controlled debug overlay")
-                                          .foregroundStyle(.secondary)
-                                      Text(status)
-                                          .font(.caption.monospaced())
-                                  }
-                              }
-
-                              Section("Demo game values") {
-                                  ForEach(stats.indices, id: \.self) { i in
-                                      HStack {
-                                          Text(stats[i].name)
-                                          Spacer()
-                                          if stats[i].locked { Image(systemName: "lock.fill") }
-                                          Text("\(stats[i].value)")
-                                              .font(.body.monospacedDigit())
-                                      }
-                                  }
-                              }
-
-                              Section {
-                                  Button("Simulate game update") {
-                                      if !stats[0].locked { stats[0].value += 25 }
-                                      if !stats[1].locked { stats[1].value += 1 }
-                                      if !stats[2].locked { stats[2].value = max(0, stats[2].value - 5) }
-                                      if !stats[3].locked { stats[3].value += 100 }
-                                      status = "Demo values updated"
-                                  }
-                              }
-                          }
-                          .navigationTitle("MemForge")
+                      if isOpen {
+                          panel
+                              .padding(.trailing, 18)
+                              .transition(.move(edge: .trailing).combined(with: .opacity))
                       }
 
                       Button {
-                          overlayOpen.toggle()
+                          withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                              isOpen.toggle()
+                              if isOpen, store.values.indices.contains(selectedIndex) {
+                                  editValue = String(store.values[selectedIndex].value)
+                              }
+                          }
                       } label: {
-                          Image(systemName: overlayOpen ? "xmark" : "gearshape.fill")
+                          Image(systemName: isOpen ? "xmark" : "gearshape.fill")
                               .font(.title3.bold())
                               .foregroundStyle(.white)
                               .frame(width: 54, height: 54)
-                              .background(.black.opacity(0.88), in: Circle())
-                              .shadow(radius: 8)
+                              .background(.black.opacity(0.9), in: Circle())
+                              .shadow(radius: 10)
                       }
-                      .padding(.trailing, 12)
-                      .offset(gearOffset)
-                      .gesture(DragGesture().onChanged { gearOffset = $0.translation })
-                      .zIndex(3)
+                      .padding(.trailing, 10)
+                      .offset(position)
+                      .gesture(
+                          DragGesture()
+                              .onChanged { position = $0.translation }
+                      )
+                      .zIndex(2)
+                  }
+              }
 
-                      if overlayOpen {
-                          VStack(spacing: 14) {
-                              HStack {
-                                  Image(systemName: "gearshape.2.fill")
-                                  Text("Debug Overlay").font(.headline)
-                                  Spacer()
+              private var panel: some View {
+                  VStack(alignment: .leading, spacing: 14) {
+                      HStack {
+                          Image(systemName: "memorychip.fill")
+                          Text("MemForgeKit").font(.headline)
+                          Spacer()
+                          Text("CONTROLLED").font(.caption2.bold()).foregroundStyle(.secondary)
+                      }
+
+                      if store.values.isEmpty {
+                          Text("No registered values")
+                              .foregroundStyle(.secondary)
+                      } else {
+                          Picker("Value", selection: $selectedIndex) {
+                              ForEach(store.values.indices, id: \.self) { index in
+                                  Text(store.values[index].name).tag(index)
                               }
-
-                              Picker("Value", selection: $selectedIndex) {
-                                  ForEach(stats.indices, id: \.self) { i in
-                                      Text(stats[i].name).tag(i)
-                                  }
-                              }
-                              .onChange(of: selectedIndex) { _, newValue in
-                                  editValue = String(stats[newValue].value)
-                              }
-
-                              HStack {
-                                  Text("Current")
-                                  Spacer()
-                                  Text("\(stats[selectedIndex].value)")
-                                      .font(.body.monospacedDigit())
-                              }
-
-                              TextField("New value", text: $editValue)
-                                  .keyboardType(.numberPad)
-                                  .textFieldStyle(.roundedBorder)
-
-                              Button("Apply value") {
-                                  if let n = Int(editValue) {
-                                      stats[selectedIndex].value = n
-                                      status = "Updated \(stats[selectedIndex].name)"
-                                  }
-                              }
-                              .buttonStyle(.borderedProminent)
-
-                              Toggle("Lock value", isOn: Binding(
-                                  get: { stats[selectedIndex].locked },
-                                  set: { stats[selectedIndex].locked = $0 }
-                              ))
-
-                              Text("Overlay active only inside this controlled demo app.")
-                                  .font(.caption2)
-                                  .foregroundStyle(.secondary)
                           }
-                          .padding(18)
-                          .frame(width: 320)
-                          .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                          .shadow(radius: 24)
-                          .padding(.trailing, 22)
-                          .transition(.scale.combined(with: .opacity))
-                          .zIndex(2)
+                          .onChange(of: selectedIndex) { _, newIndex in
+                              guard store.values.indices.contains(newIndex) else { return }
+                              editValue = String(store.values[newIndex].value)
+                          }
+
+                          HStack {
+                              Text("Current")
+                              Spacer()
+                              Text("\(store.values[selectedIndex].value)")
+                                  .font(.body.monospacedDigit().bold())
+                          }
+
+                          TextField("New value", text: $editValue)
+                              .keyboardType(.numberPad)
+                              .textFieldStyle(.roundedBorder)
+
+                          Button {
+                              if let newValue = Int(editValue) {
+                                  store.setValue(at: selectedIndex, to: newValue)
+                              }
+                          } label: {
+                              Label("Apply", systemImage: "checkmark.circle.fill")
+                                  .frame(maxWidth: .infinity)
+                          }
+                          .buttonStyle(.borderedProminent)
+
+                          Toggle(
+                              "Freeze value",
+                              isOn: Binding(
+                                  get: { store.values[selectedIndex].frozen },
+                                  set: { store.setFrozen(at: selectedIndex, frozen: $0) }
+                              )
+                          )
+
+                          Text(store.status)
+                              .font(.caption.monospaced())
+                              .foregroundStyle(.secondary)
                       }
                   }
-                  .animation(.spring(response: 0.28, dampingFraction: 0.82), value: overlayOpen)
+                  .padding(18)
+                  .frame(width: 320)
+                  .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                  .shadow(radius: 24)
+              }
+          }
+          SWIFT
+
+          cat > GameHost/GameHostApp.swift <<'SWIFT'
+          import SwiftUI
+          import MemForgeKit
+
+          @main
+          struct GameHostApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      GameView()
+                  }
+              }
+          }
+          SWIFT
+
+          cat > GameHost/GameView.swift <<'SWIFT'
+          import SwiftUI
+          import MemForgeKit
+
+          struct GameView: View {
+              @StateObject private var store = MemForgeStore(values: [
+                  MemForgeValue(name: "Coins", value: 1500),
+                  MemForgeValue(name: "Gems", value: 25),
+                  MemForgeValue(name: "Health", value: 100),
+                  MemForgeValue(name: "Score", value: 7500)
+              ])
+
+              var body: some View {
+                  ZStack {
+                      LinearGradient(
+                          colors: [.black, .gray.opacity(0.65)],
+                          startPoint: .topLeading,
+                          endPoint: .bottomTrailing
+                      )
+                      .ignoresSafeArea()
+
+                      VStack(spacing: 18) {
+                          Text("GAMEHOST")
+                              .font(.largeTitle.black())
+                              .foregroundStyle(.white)
+
+                          Text("Authorized test build")
+                              .foregroundStyle(.white.opacity(0.7))
+
+                          LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                              ForEach(store.values) { item in
+                                  VStack(spacing: 6) {
+                                      Text(item.name.uppercased())
+                                          .font(.caption.bold())
+                                          .foregroundStyle(.secondary)
+                                      Text("\(item.value)")
+                                          .font(.title2.monospacedDigit().bold())
+                                      if item.frozen {
+                                          Label("FROZEN", systemImage: "lock.fill")
+                                              .font(.caption2.bold())
+                                      }
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 105)
+                                  .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 18))
+                              }
+                          }
+
+                          Button {
+                              store.mutateForDemo()
+                          } label: {
+                              Label("Run game tick", systemImage: "play.fill")
+                                  .frame(maxWidth: .infinity)
+                                  .padding(.vertical, 6)
+                          }
+                          .buttonStyle(.borderedProminent)
+
+                          Text("Open the floating gear to edit registered values in real time.")
+                              .font(.footnote)
+                              .foregroundStyle(.white.opacity(0.7))
+                              .multilineTextAlignment(.center)
+                      }
+                      .padding(22)
+
+                      MemForgeOverlay(store: store)
+                  }
               }
           }
           SWIFT
@@ -222,14 +339,14 @@ jobs:
         run: |
           set -euo pipefail
           xcodegen generate
-          test -d MemForgeV5.xcodeproj
+          test -d GameHost.xcodeproj
 
-      - name: Build for physical iPhone
+      - name: Build GameHost for physical iPhone
         run: |
           set -euo pipefail
           xcodebuild \
-            -project MemForgeV5.xcodeproj \
-            -scheme MemForge \
+            -project GameHost.xcodeproj \
+            -scheme GameHost \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -239,29 +356,39 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean build
 
-      - name: Ad-hoc sign
+      - name: Ad-hoc sign embedded frameworks and app
         run: |
           set -euo pipefail
-          APP="build/Build/Products/Release-iphoneos/MemForge.app"
+          APP="build/Build/Products/Release-iphoneos/GameHost.app"
           test -d "$APP"
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -maxdepth 1 -type d -name '*.framework' -print0 | while IFS= read -r -d '' FW; do
+              /usr/bin/codesign --force --sign - --timestamp=none "$FW"
+            done
+          fi
           /usr/bin/codesign --force --sign - --timestamp=none "$APP"
-          /usr/bin/codesign --verify --verbose=4 "$APP"
+          /usr/bin/codesign --verify --deep --strict --verbose=4 "$APP"
 
-      - name: Create IPA
+      - name: Create validated IPA
         run: |
           set -euo pipefail
-          APP="build/Build/Products/Release-iphoneos/MemForge.app"
-          rm -rf Payload MemForge-V5.ipa
+          APP="build/Build/Products/Release-iphoneos/GameHost.app"
+          rm -rf Payload ipa-check GameHost-MemForge.ipa
           mkdir -p Payload
-          /usr/bin/ditto "$APP" "Payload/MemForge.app"
-          /usr/bin/zip -qry MemForge-V5.ipa Payload
-          test -s MemForge-V5.ipa
-          unzip -t MemForge-V5.ipa
+          /usr/bin/ditto "$APP" "Payload/GameHost.app"
+          /usr/bin/zip -qry GameHost-MemForge.ipa Payload
+          test -s GameHost-MemForge.ipa
+          unzip -t GameHost-MemForge.ipa
+          mkdir ipa-check
+          unzip -q GameHost-MemForge.ipa -d ipa-check
+          test -d ipa-check/Payload/GameHost.app
+          /usr/bin/codesign --verify --deep --strict --verbose=4 ipa-check/Payload/GameHost.app
+          ls -lh GameHost-MemForge.ipa
 
-      - name: Upload MemForge V5
+      - name: Upload GameHost IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MemForge-V5-IPA
-          path: MemForge-V5.ipa
+          name: GameHost-MemForge-IPA
+          path: GameHost-MemForge.ipa
           if-no-files-found: error
           retention-days: 7
