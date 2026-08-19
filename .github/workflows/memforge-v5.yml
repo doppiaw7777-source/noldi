@@ -4,6 +4,9 @@ name: MemForge V5 Auto Build
   push:
     paths:
       - ".github/workflows/memforge-v5.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/memforge-v5.yml"
   workflow_dispatch:
 
 jobs:
